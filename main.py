@@ -1,24 +1,30 @@
 import logging
 from aiogram import Bot, Dispatcher, executor
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from config import TELEGRAM_BOT_TOKEN
+from aiogram.contrib.fsm_storage.redis import RedisStorage2
+from config import TELEGRAM_BOT_TOKEN, REDIS_HOST, REDIS_PORT
 from bot.handlers.menu import register_handlers_menu
 from bot.handlers.commands import register_handlers_commands
 from bot.handlers.inline import register_handlers_inline
 from bot.handlers.participants import register_handlers_participants
 from bot.handlers.filters import register_filters, register_filter_callbacks
+
 logging.basicConfig(level=logging.INFO)
+
 def main():
     bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode="HTML")
-    storage = MemoryStorage()
+    # Используем RedisStorage2 (вы можете указать db, например, 5)
+    storage = RedisStorage2(host=REDIS_HOST, port=REDIS_PORT, db=5)
     dp = Dispatcher(bot, storage=storage)
+
     register_handlers_menu(dp)
     register_handlers_commands(dp)
     register_handlers_inline(dp)
     register_handlers_participants(dp)
     register_filters(dp)
     register_filter_callbacks(dp)
+
     logging.info("Бот запущен...")
     executor.start_polling(dp, skip_updates=True)
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
