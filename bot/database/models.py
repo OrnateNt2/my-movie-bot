@@ -31,23 +31,35 @@ def get_connection():
     """)
     return conn
 
-def create_group_with_name(group_code: str, creator_id: int, group_name: str):
+
+def get_group_name(group_code: str) -> str:
     """
-    Создаёт новую группу (code, creator_id, group_name) и добавляет создателя,
-    при этом делаем её активной (is_active=1) и выключаем активность
-    в остальных группах пользователя.
+    Возвращает название группы (group_name) по её коду.
+    Если не найдена, вернёт пустую строку.
     """
     conn = get_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT group_name FROM groups WHERE code = ?", (group_code,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else ""
 
-    # Сначала сбрасываем is_active у всех групп данного пользователя
+
+def create_group_with_name(group_code: str, creator_id: int, group_name: str):
+    """
+    Создаёт новую группу (code, creator_id, group_name), 
+    делает её активной у создателя (is_active=1), обнуляя прочие.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    # Сбрасываем активность у всех групп этого пользователя
     cursor.execute("""
         UPDATE group_users
         SET is_active = 0
         WHERE user_id = ?
     """, (creator_id,))
-
-    # Теперь создаём запись о группе
+    
+    # Создаём группу
     cursor.execute("SELECT code FROM groups WHERE code = ?", (group_code,))
     row = cursor.fetchone()
     if not row:
@@ -63,11 +75,11 @@ def create_group_with_name(group_code: str, creator_id: int, group_name: str):
     conn.commit()
     conn.close()
 
+
 def add_user_to_group(group_code: str, user_id: int) -> bool:
     """
-    Присоединяет пользователя к группе с кодом group_code, делает is_active=0 по умолчанию.
-    Возвращает True, если группа существует (и пользователь добавлен/уже есть),
-    иначе False.
+    Присоединяет пользователя к группе (is_active=0).
+    Возвращает True, если группа существует, иначе False.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -77,14 +89,12 @@ def add_user_to_group(group_code: str, user_id: int) -> bool:
         conn.close()
         return False
 
-    # Проверяем, не добавлен ли уже
     cursor.execute("""
         SELECT id FROM group_users
         WHERE group_code = ? AND user_id = ?
     """, (group_code, user_id))
     row = cursor.fetchone()
     if not row:
-        # Добавляем с is_active=0
         cursor.execute("""
             INSERT INTO group_users (group_code, user_id, is_active)
             VALUES (?, ?, 0)
@@ -93,10 +103,10 @@ def add_user_to_group(group_code: str, user_id: int) -> bool:
     conn.close()
     return True
 
+
 def get_user_active_group(user_id: int) -> str:
     """
-    Возвращает code активной группы (где is_active=1).
-    Если нет активной группы — None.
+    Возвращает code активной группы (is_active=1).
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -111,17 +121,14 @@ def get_user_active_group(user_id: int) -> str:
     conn.close()
     return row[0] if row else None
 
+
 def set_active_group(user_id: int, group_code: str) -> bool:
     """
-    Делает указанную группу активной (is_active=1) для пользователя,
-    снимает активность с остальных групп.
-    Возвращает True, если удалось, False, если пользователь не состоит
-    в этой группе.
+    Делает указанную группу активной. Возвращает True, если пользователь 
+    действительно в группе, иначе False.
     """
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Проверяем, состоит ли пользователь в этой группе
     cursor.execute("""
         SELECT id FROM group_users
         WHERE group_code = ? AND user_id = ?
@@ -131,47 +138,49 @@ def set_active_group(user_id: int, group_code: str) -> bool:
         conn.close()
         return False
 
-    # Сбрасываем is_active у всех групп
     cursor.execute("""
         UPDATE group_users
         SET is_active = 0
         WHERE user_id = ?
     """, (user_id,))
-    # Включаем is_active=1 для нужной
+
     cursor.execute("""
         UPDATE group_users
         SET is_active = 1
-        WHERE group_code = ? AND user_id = ?
-    """, (group_code, user_id))
+        WHERE user_id = ? AND group_code = ?
+    """, (user_id, group_code))
     conn.commit()
     conn.close()
     return True
 
+
 def get_all_groups_for_user(user_id: int):
     """
-    Возвращает список кортежей (group_code, group_name, is_active).
+    Возвращает [(code, group_name, is_active), ...].
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT g.code, g.group_name, gu.is_active
         FROM group_users gu
-        JOIN groups g ON gu.group_code = g.code
+        JOIN groups g ON g.code = gu.group_code
         WHERE gu.user_id = ?
     """, (user_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
 
-def leave_group(user_id: int, group_code: str) -> bool:
+
+def leave_group(user_id: int, group_code: str) -> tuple[bool, str]:
     """
-    Удаляет пользователя из указанной группы. 
-    Возвращает True, если пользователь действительно состоял в группе.
-    По желанию можно ещё удалить оценки (ratings).
+    Удаляет пользователя из группы. Возвращает (success, group_name).
+    success=True, если действительно был в группе.
+    
+    Если хотите удалить все его оценки, раскомментируйте соответствующий блок.
     """
     conn = get_connection()
     cursor = conn.cursor()
-    # Проверяем наличие
+
     cursor.execute("""
         SELECT id FROM group_users
         WHERE user_id = ? AND group_code = ?
@@ -179,15 +188,17 @@ def leave_group(user_id: int, group_code: str) -> bool:
     row = cursor.fetchone()
     if not row:
         conn.close()
-        return False
+        return (False, "")
 
-    # Удаляем запись
+    # Получаем название группы (чтобы вернуть в ответе)
+    group_name = get_group_name(group_code)
+
     cursor.execute("""
         DELETE FROM group_users
         WHERE user_id = ? AND group_code = ?
     """, (user_id, group_code))
 
-    # Если хотите также удалить все оценки пользователя в этой группе:
+    # Удалять оценки:
     # cursor.execute("""
     #     DELETE FROM ratings
     #     WHERE user_id = ? AND group_code = ?
@@ -195,11 +206,12 @@ def leave_group(user_id: int, group_code: str) -> bool:
 
     conn.commit()
     conn.close()
-    return True
+    return (True, group_name)
+
 
 def save_movie_rating(user_id: int, movie_id: int, rating: int):
     """
-    Сохраняем оценку для активной группы.
+    Сохраняем оценку для активной группы пользователя.
     """
     group_code = get_user_active_group(user_id)
     if not group_code:
@@ -221,21 +233,19 @@ def save_movie_rating(user_id: int, movie_id: int, rating: int):
         conn.commit()
     conn.close()
 
+
 def get_common_movies_for_group(group_code: str):
     """
-    Фильмы, которые все участники группы оценили >= MIN_RATING_THRESHOLD.
+    Фильмы, у которых рейтинг >= MIN_RATING_THRESHOLD от всех участников группы.
     """
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Считаем, сколько людей в группе
     cursor.execute("""
         SELECT COUNT(*) FROM group_users
         WHERE group_code = ?
     """, (group_code,))
     (user_count,) = cursor.fetchone()
 
-    # Ищем фильмы, у которых рейтинг >= MIN_RATING_THRESHOLD у всех
     query = """
         SELECT movie_id
         FROM ratings
@@ -252,7 +262,6 @@ def get_common_movies_for_group(group_code: str):
         return []
 
     movie_ids = [r[0] for r in rows]
-
     from bot.services.kinopoisk_api import get_movie_info_by_id
     results = []
     for mid in movie_ids:

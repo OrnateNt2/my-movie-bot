@@ -17,31 +17,32 @@ class GroupCreation(StatesGroup):
 async def cmd_start(message: types.Message):
     commands_text = (
         "Привет! Я бот для совместного выбора фильмов.\n\n"
-        "<b>Доступные команды:</b>\n"
+        "<b>Команды:</b>\n"
         "/start — показать это сообщение\n"
         "/new_group — создать новую группу (запросит название)\n"
         "/join_group &lt;код&gt; — присоединиться к группе\n"
-        "/next_movie — предложить фильм для оценки в активной группе\n"
-        "/common_movies — показать общие фильмы для активной группы\n"
-        "/my_groups — показать все группы, в которых вы состоите\n"
+        "/my_groups — вывести список ваших групп (с кнопками)\n"
+        "/next_movie — предложить фильм (использует активную группу)\n"
+        "/common_movies — показать общие фильмы (для активной группы)\n"
     )
     await message.answer(commands_text)
 
+
 async def cmd_new_group(message: types.Message, state: FSMContext):
     """
-    Начинаем процесс создания группы. Просим название.
+    Запрашиваем название новой группы (FSM).
     """
-    await message.answer("Введите название вашей новой группы (например «Киноклуб Соседей»):")
+    await message.answer("Введите название вашей новой группы:")
     await GroupCreation.waiting_for_group_name.set()
 
 async def group_name_received(message: types.Message, state: FSMContext):
     """
-    Создаём группу, генерируем код, делаем её активной.
+    Пользователь присылает название -> создаём группу, делаем её активной.
     """
     user_id = message.from_user.id
     group_name = message.text.strip()
     if not group_name:
-        await message.answer("Название группы не может быть пустым. Попробуйте снова.")
+        await message.answer("Название группы не может быть пустым. Попробуйте ещё раз.")
         return
 
     code = generate_group_code()
@@ -50,77 +51,69 @@ async def group_name_received(message: types.Message, state: FSMContext):
     await message.answer(
         f"Группа <b>{group_name}</b> создана!\n"
         f"Код группы: <b>{code}</b>\n"
-        "Отправьте этот код друзьям, чтобы они присоединились.\n"
-        "Эта группа теперь активна для вас. Можете вызвать /next_movie!"
+        "Отправьте его друзьям, чтобы они присоединились.\n"
+        "Теперь эта группа активна для вас. Используйте /next_movie."
     )
-
     await state.finish()
 
 async def cmd_join_group(message: types.Message):
     """
-    /join_group &lt;код&gt; — присоединиться к группе.
+    /join_group &lt;код&gt; — присоединиться к группе по коду (is_active=0).
     """
     user_id = message.from_user.id
-    parts = message.text.strip().split()
+    parts = message.text.split()
     if len(parts) < 2:
-        await message.answer("Не указан код группы. Пример: /join_group &lt;код&gt;")
+        await message.answer("Нужно указать код группы: /join_group &lt;код&gt;")
         return
 
     group_code = parts[1]
     success = add_user_to_group(group_code, user_id)
     if success:
         await message.answer(
-            f"Вы присоединились к группе с кодом <b>{group_code}</b>!\n"
-            "Чтобы сделать её активной, используйте /my_groups."
+            f"Вы присоединились к группе с кодом <b>{group_code}</b>.\n"
+            "Посмотреть все группы и переключиться на нужную: /my_groups"
         )
     else:
         await message.answer("Группа с таким кодом не найдена.")
 
 async def cmd_my_groups(message: types.Message):
     """
-    Показываем список групп пользователя, добавляем кнопки:
-      - «Сделать активной»
-      - «Покинуть группу»
+    Показываем список групп пользователя, добавляя inline-кнопки для:
+    - Сделать активной: <название>
+    - Покинуть: <название>
     """
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    from bot.database.models import get_all_groups_for_user
-
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     user_id = message.from_user.id
     groups = get_all_groups_for_user(user_id)
     if not groups:
-        await message.answer("Вы не состоите ни в одной группе. Создайте /new_group или /join_group &lt;код&gt;.")
+        await message.answer("Вы не состоите ни в одной группе. /new_group или /join_group &lt;код&gt;.")
         return
 
-    text = "Ваши группы:\n"
+    text = "<b>Ваши группы:</b>\n"
     markup = InlineKeyboardMarkup(row_width=2)
+    for code, gname, active in groups:
+        name = gname if gname else "Без названия"
+        active_mark = " (активная)" if active else ""
+        text += f"• {name}{active_mark} [код: {code}]\n"
 
-    # groups — список кортежей (code, group_name, is_active)
-    for code, name, active in groups:
-        group_name = name if name else "Без названия"
-        mark = " (активная)" if active else ""
-        text += f"• {group_name} [код: {code}]{mark}\n"
-
-        # Две кнопки в ряду: [Сделать активной / Активная], [Покинуть]
-        btns = []
+        # Две кнопки:
+        # 1) Активная / Сделать активной: <название>
         if active:
-            # Уже активна — делаем "Активная" (без callback)
-            btns.append(InlineKeyboardButton(
-                text="Активная ✅",
-                callback_data="no_action"  # заглушка, можно игнорировать
-            ))
+            btn_active = InlineKeyboardButton(
+                text=f"Активная ✅",
+                callback_data="no_action"
+            )
         else:
-            # Кнопка "Сделать активной"
-            btns.append(InlineKeyboardButton(
-                text="Сделать активной",
+            btn_active = InlineKeyboardButton(
+                text=f"Сделать активной: {name}",
                 callback_data=f"switch_group:{code}"
-            ))
-        # Кнопка "Покинуть группу"
-        btns.append(InlineKeyboardButton(
-            text="Покинуть",
+            )
+        # 2) Покинуть группу
+        btn_leave = InlineKeyboardButton(
+            text=f"Покинуть: {name}",
             callback_data=f"leave_group:{code}"
-        ))
-
-        markup.row(*btns)
+        )
+        markup.row(btn_active, btn_leave)
 
     await message.answer(text, reply_markup=markup)
 
