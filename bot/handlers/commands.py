@@ -1,5 +1,4 @@
 from aiogram import types, Dispatcher
-
 async def cmd_my_groups(message: types.Message):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     user_id = message.from_user.id
@@ -21,6 +20,5 @@ async def cmd_my_groups(message: types.Message):
         btn_leave = InlineKeyboardButton(f"Покинуть: {gname}", callback_data=f"leave_group:{code}")
         markup.row(btn_active, btn_leave)
     await message.answer(text, reply_markup=markup)
-
 def register_handlers_commands(dp: Dispatcher):
     pass

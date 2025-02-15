@@ -1,5 +1,4 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 def movie_rating_keyboard(movie_id):
     kb = InlineKeyboardMarkup(row_width=5)
     btns = []

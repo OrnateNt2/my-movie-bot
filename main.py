@@ -7,7 +7,6 @@ from bot.handlers.commands import register_handlers_commands
 from bot.handlers.inline import register_handlers_inline
 from bot.handlers.participants import register_handlers_participants
 from bot.handlers.filters import register_filters, register_filter_callbacks
-
 logging.basicConfig(level=logging.INFO)
 def main():
     bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode="HTML")
