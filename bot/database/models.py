@@ -176,4 +176,4 @@ def get_group_filters(group_code):
         year_start = row[3]
         year_end = row[4]
         return (content_type, rating_min, rating_max, year_start, year_end)
-    return ("",5,10,None,None)
+    return ("", 5, 10, None, None)
